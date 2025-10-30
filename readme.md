@@ -1,0 +1,1 @@
+作为GoStaker的推送服务Gateway实现

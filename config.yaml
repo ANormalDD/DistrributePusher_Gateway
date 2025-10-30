@@ -1,0 +1,44 @@
+name: "Gateway"
+mode: "dev"
+port: 8083
+start_time: "2024-06-10 12:00:00"
+machine_id: 1
+
+log:
+  level: "debug"
+  filename: "Gateway.log"
+  max_size: 200
+  max_age: 30
+  max_backups: 7
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "root"
+  dbname: "GoStacker"
+  max_open_conns: 200
+  max_idle_conns: 50
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  db: 0
+  password: ""
+  pool_size: 50
+
+jwt:
+  secret: "your_jwt_secret_key"
+  expire_duration: 7200 # in seconds
+
+ws:
+  max_write_wait: 10 # in seconds
+  max_read_wait: 60  # in seconds
+
+dispatcher:
+  worker_count: 20
+  task_queue_size: 1000
+  max_connections: 10000
+
+center:
+  address: "http://127.0.0.1:8081"
