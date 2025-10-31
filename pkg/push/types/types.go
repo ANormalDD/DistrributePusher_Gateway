@@ -1,13 +1,13 @@
 package types
 
-// PushMessage 是推送到消息队列的消息格式
+// PushMessage 是推送到消息队列的消息格式，同时也是center与gateway之间转发的消息格式
 type PushMessage struct {
-	ID        int64
-	Type      string
-	RoomID    int64
-	SenderID  int64
-	TargetIDs []int64
-	Payload   interface{}
+	ID        int64 `json:"id"`
+	Type      string `json:"type"`
+	RoomID    int64 `json:"room_id"`
+	SenderID  int64	 `json:"sender_id"`
+	TargetIDs []int64 `json:"target_ids"`
+	Payload   interface{} `json:"payload"`
 }
 
 // ClientMessage 是发送给客户端的消息格式

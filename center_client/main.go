@@ -1,7 +1,7 @@
-package center
+package center_client
 
 import (
-	"Gateway/center/ws"
+	"Gateway/center_client/ws"
 	"Gateway/pkg/config"
 	"Gateway/pkg/push/types"
 	"bytes"

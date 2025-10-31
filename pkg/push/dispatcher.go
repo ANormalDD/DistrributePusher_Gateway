@@ -1,7 +1,7 @@
 package push
 
 import (
-	"Gateway/center"
+	"Gateway/center_client"
 	"Gateway/pkg/config"
 	"Gateway/pkg/db/redis"
 	"Gateway/pkg/push/types"
@@ -47,7 +47,7 @@ func startPushDispatcher(Conf *config.DispatcherConfig) {
 						err := PushViaWSWithRetry(task.UserID, 2, 10*time.Second, task.Msg)
 						if err != nil {
 							// If WebSocket push fails, push to center for forwarding
-							err2 := center.SendForwardRequestWithRetry(config.Conf.CenterConfig, task.Msg, 3, 100)
+							err2 := center_client.SendForwardRequestWithRetry(config.Conf.CenterConfig, task.Msg, 3, 100)
 							if err2 != nil {
 								zap.L().Error("Failed to forward message to center after WS push failure, msg missed", zap.Int64("userID", task.UserID), zap.Error(err2))
 							}

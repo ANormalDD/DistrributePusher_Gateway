@@ -1,7 +1,7 @@
 package push
 
 import (
-	"Gateway/center/ws"
+	"Gateway/center_client/ws"
 	"errors"
 	"sync"
 	"time"
