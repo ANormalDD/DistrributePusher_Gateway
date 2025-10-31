@@ -75,3 +75,33 @@ func SendForwardRequestWithRetry(cfg *config.CenterConfig, forwardReq types.Clie
 	}
 	return err
 }
+
+func RegisterMsg(cfg *config.CenterConfig, msg types.ClientMessage) error {
+	jsonData, err := json.Marshal(msg)
+	if err != nil {
+		zap.L().Error("Failed to marshal register message", zap.Error(err))
+		return err
+	}
+	resp, err := http.Post(cfg.Address+"/register_msg", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		zap.L().Error("Failed to send register message", zap.Error(err))
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		zap.L().Error("Failed to register message", zap.String("status", resp.Status))
+		return fmt.Errorf("failed to register message: %s", resp.Status)
+	}
+	return nil
+}
+func RegisterMsgWithRetry(cfg *config.CenterConfig, msg types.ClientMessage, retries int, delayMs int) error {
+	var err error
+	for i := 0; i < retries; i++ {
+		err = RegisterMsg(cfg, msg)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(delayMs) * time.Millisecond)
+	}
+	return err
+}
