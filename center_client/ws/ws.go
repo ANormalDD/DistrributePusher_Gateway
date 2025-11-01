@@ -20,6 +20,19 @@ var (
 	writeMu sync.Mutex
 )
 
+// readyMu protects readyCh and connected
+var (
+	readyMu   sync.Mutex
+	readyCh   chan struct{}
+	connected bool
+)
+
+func init() {
+	// initially not connected; readyCh is open and will be closed when connected
+	readyCh = make(chan struct{})
+	connected = false
+}
+
 // Start 连接到中心服务器并启动读取循环。会在连接断开后尝试重连。
 func Start() {
 	if config.Conf == nil || config.Conf.CenterConfig == nil || config.Conf.CenterConfig.Address == "" {
@@ -73,9 +86,26 @@ func connectAndServe(ctx context.Context, addr string) error {
 		return err
 	}
 	conn = c
+
+	// mark connected and notify waiters
+	readyMu.Lock()
+	connected = true
+	if readyCh != nil {
+		close(readyCh)
+		readyCh = nil
+	}
+	readyMu.Unlock()
 	defer func() {
 		_ = conn.Close()
 		conn = nil
+
+		// mark disconnected and recreate readyCh for future waits
+		readyMu.Lock()
+		connected = false
+		if readyCh == nil {
+			readyCh = make(chan struct{})
+		}
+		readyMu.Unlock()
 	}()
 
 	// heartbeat settings (客户端侧)
@@ -157,4 +187,34 @@ func sendJSONSafe(v interface{}) error {
 		return err
 	}
 	return nil
+}
+
+// SendJSON 是对 sendJSONSafe 的导出封装，允许外部包通过 websocket 发送任意 JSON 可序列化结构。
+func SendJSON(v interface{}) error {
+	return sendJSONSafe(v)
+}
+
+// WaitReady waits until the websocket connection is established or the timeout elapses.
+// It uses a mutex+channel notification mechanism to avoid polling.
+func WaitReady(timeout time.Duration) error {
+	// Fast path: check under lock if already connected
+	readyMu.Lock()
+	if connected {
+		readyMu.Unlock()
+		return nil
+	}
+	ch := readyCh
+	readyMu.Unlock()
+
+	if ch == nil {
+		// connection already became ready between locks
+		return nil
+	}
+
+	select {
+	case <-ch:
+		return nil
+	case <-time.After(timeout):
+		return errors.New("center ws not ready (timeout)")
+	}
 }

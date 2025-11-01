@@ -4,10 +4,6 @@ import (
 	"Gateway/center_client/ws"
 	"Gateway/pkg/config"
 	"Gateway/pkg/push/types"
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,54 +16,50 @@ type RegisterGatewayRequest struct {
 }
 
 func RegisterToCenter(cfg *config.CenterConfig, gatewayAddress string, gatewayPort int, maxConnections int) error {
+	// 启动 websocket 连接 goroutine（会在内部尝试重连）
 	ws.Start()
+	// 等待连接就绪（最多等待 10 秒）
+	if err := ws.WaitReady(10 * time.Second); err != nil {
+		zap.L().Error("RegisterToCenter: center ws not ready", zap.Error(err))
+		return err
+	}
+
+	// 通过 websocket 发送注册消息（一次性发送，若需要可靠投递可让调用方使用 SendPushBackRequestWithRetry 或另行实现 ACK 机制）
 	reqBody := RegisterGatewayRequest{
 		Address:        gatewayAddress,
 		Port:           gatewayPort,
 		MaxConnections: maxConnections,
 	}
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		zap.L().Error("Failed to marshal register gateway request", zap.Error(err))
+	if err := ws.SendJSON(map[string]interface{}{
+		"type": "register_gateway",
+		"data": reqBody,
+		"ts":   time.Now().Unix(),
+	}); err != nil {
+		zap.L().Error("RegisterToCenter: failed to send register via ws", zap.Error(err))
 		return err
-	}
-	resp, err := http.Post(cfg.Address+"/register_gateway", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		zap.L().Error("Failed to send register gateway request", zap.Error(err))
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		zap.L().Error("Failed to register gateway", zap.String("status", resp.Status))
-		return fmt.Errorf("failed to register gateway: %s", resp.Status)
 	}
 	return nil
 }
 
-// 对没有连接到本gateway的用户转发消息到center，由center负责路由到正确的gateway center_address/forward
-func SendForwardRequest(cfg *config.CenterConfig, forwardReq types.ClientMessage) error {
-	jsonData, err := json.Marshal(forwardReq)
-	if err != nil {
-		zap.L().Error("Failed to marshal forward request", zap.Error(err))
-		return err
+// 对推送失败的消息，发送到中心服务器进行转发
+func SendPushBackRequest(cfg *config.CenterConfig, forwardReq types.ClientMessage) error {
+	// 使用 websocket 发送 pushback 请求
+	msg := map[string]interface{}{
+		"type":    "pushback",
+		"message": forwardReq,
+		"ts":      time.Now().Unix(),
 	}
-	resp, err := http.Post(cfg.Address+"/forward", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		zap.L().Error("Failed to send forward request", zap.Error(err))
+	if err := ws.SendJSON(msg); err != nil {
+		zap.L().Error("Failed to send pushback via ws", zap.Error(err))
 		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		zap.L().Error("Failed to forward message", zap.String("status", resp.Status))
-		return fmt.Errorf("failed to forward message: %s", resp.Status)
 	}
 	return nil
 }
 
-func SendForwardRequestWithRetry(cfg *config.CenterConfig, forwardReq types.ClientMessage, retries int, delayMs int) error {
+func SendPushBackRequestWithRetry(cfg *config.CenterConfig, forwardReq types.ClientMessage, retries int, delayMs int) error {
 	var err error
 	for i := 0; i < retries; i++ {
-		err = SendForwardRequest(cfg, forwardReq)
+		err = SendPushBackRequest(cfg, forwardReq)
 		if err == nil {
 			return nil
 		}
@@ -77,23 +69,18 @@ func SendForwardRequestWithRetry(cfg *config.CenterConfig, forwardReq types.Clie
 }
 
 func RegisterMsg(cfg *config.CenterConfig, msg types.ClientMessage) error {
-	jsonData, err := json.Marshal(msg)
-	if err != nil {
-		zap.L().Error("Failed to marshal register message", zap.Error(err))
-		return err
+	payload := map[string]interface{}{
+		"type":    "register_msg",
+		"message": msg,
+		"ts":      time.Now().Unix(),
 	}
-	resp, err := http.Post(cfg.Address+"/register_msg", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		zap.L().Error("Failed to send register message", zap.Error(err))
+	if err := ws.SendJSON(payload); err != nil {
+		zap.L().Error("Failed to send register_msg via ws", zap.Error(err))
 		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		zap.L().Error("Failed to register message", zap.String("status", resp.Status))
-		return fmt.Errorf("failed to register message: %s", resp.Status)
 	}
 	return nil
 }
+
 func RegisterMsgWithRetry(cfg *config.CenterConfig, msg types.ClientMessage, retries int, delayMs int) error {
 	var err error
 	for i := 0; i < retries; i++ {
