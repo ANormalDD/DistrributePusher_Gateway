@@ -16,6 +16,7 @@ type AppConfig struct {
 	Version   string `mapstructure:"version"`
 	StartTime string `mapstructure:"start_time"`
 	MachineID int64  `mapstructure:"machine_id"`
+	
 
 	*LogConfig        `mapstructure:"log"`
 	*MySQLConfig      `mapstructure:"mysql"`
@@ -56,9 +57,10 @@ type JWTConfig struct {
 }
 
 type DispatcherConfig struct {
-	WorkerCount    int `mapstructure:"worker_count"`
-	TaskQueueSize  int `mapstructure:"task_queue_size"`
-	MaxConnections int `mapstructure:"max_connections"`
+	WorkerCount     int `mapstructure:"worker_count"`
+	TaskQueueSize   int `mapstructure:"task_queue_size"`
+	MaxConnections  int `mapstructure:"max_connections"`
+	SendChannelSize int `mapstructure:"send_channel_size"`
 }
 
 type CenterConfig struct {

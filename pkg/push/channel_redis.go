@@ -130,49 +130,41 @@ func ListeningWaitQueue() {
 				if err != nil {
 					continue
 				}
-				queueLen := len(PushTaskChan)
-				if queueLen < cap(PushTaskChan)*8/10 {
-					// pop message from wait queue
-					msgStr, err := redis.LPopWithRetry(2, "wait:push:"+uidStr)
+				// pop message from wait queue
+				msgStr, err := redis.LPopWithRetry(2, "wait:push:"+uidStr)
+				if err != nil {
+					if err != Redis.Nil {
+						zap.L().Error("Failed to LPop wait push message", zap.Int64("userID", uid), zap.Error(err))
+					}
+					continue
+				}
+				var clientMsg types.ClientMessage
+				if err := json.Unmarshal([]byte(msgStr), &clientMsg); err != nil {
+					// malformed message, push back? skip
+					continue
+				}
+				// try enqueue directly to the user's send channel
+				if err := EnqueueMessage(uid, 100*time.Millisecond, clientMsg); err != nil {
+					// push back to wait queue
+					err2 := redis.RPushWithRetry(2, "wait:push:"+uidStr, msgStr)
+					if err2 != nil {
+						zap.L().Error("Failed to RPush wait push message back. Message missed", zap.Int64("userID", uid), zap.Error(err2))
+					}
+					goto QUEUEBUSY
+				}
+				// if wait queue is empty remove from set
+				lenOfWaitQueue, err := redis.Rdb.LLen("wait:push:" + uidStr).Result()
+				if err != nil {
+					if err != Redis.Nil {
+						zap.L().Error("Failed to get length of wait push queue", zap.Int64("userID", uid), zap.Error(err))
+						continue
+					}
+					continue
+				}
+				if lenOfWaitQueue == 0 {
+					err = redis.Rdb.SRem("wait:push:set", uidStr).Err()
 					if err != nil {
-						if err != Redis.Nil {
-							zap.L().Error("Failed to LPop wait push message", zap.Int64("userID", uid), zap.Error(err))
-						}
-						continue
-					}
-					var clientMsg types.ClientMessage
-					if err := json.Unmarshal([]byte(msgStr), &clientMsg); err != nil {
-						continue
-					}
-					// send to PushTaskChan
-					select {
-					case PushTaskChan <- types.PushTask{
-						UserID:       uid,
-						Msg:          clientMsg,
-						MarshaledMsg: []byte(msgStr),
-					}:
-					default:
-						// push back to wait queue
-						err2 := redis.RPushWithRetry(2, "wait:push:"+uidStr, msgStr)
-						if err2 != nil {
-							zap.L().Error("Failed to RPush wait push message back. Message missed", zap.Int64("userID", uid), zap.Error(err2))
-						}
-						goto QUEUEBUSY
-					}
-					// if wait queue is empty remove from set
-					lenOfWaitQueue, err := redis.Rdb.LLen("wait:push:" + uidStr).Result()
-					if err != nil {
-						if err != Redis.Nil {
-							zap.L().Error("Failed to get length of wait push queue", zap.Int64("userID", uid), zap.Error(err))
-							continue
-						}
-						continue
-					}
-					if lenOfWaitQueue == 0 {
-						err = redis.Rdb.SRem("wait:push:set", uidStr).Err()
-						if err != nil {
-							zap.L().Error("Failed to remove userID from wait push set", zap.Int64("userID", uid), zap.Error(err))
-						}
+						zap.L().Error("Failed to remove userID from wait push set", zap.Int64("userID", uid), zap.Error(err))
 					}
 				}
 			}
@@ -186,3 +178,4 @@ func ListeningWaitQueue() {
 
 	}
 }
+
