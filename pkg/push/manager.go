@@ -8,6 +8,7 @@ import (
 	"Gateway/pkg/config"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 // 单一存储，value: *ConnectionHolder
@@ -43,6 +44,7 @@ func writerLoop(ch *ConnectionHolder) {
 			if mt, ok := req.msg.(int); ok && mt == websocket.PingMessage {
 				err = ch.Conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
 			} else {
+				zap.L().Debug("writerLoop sending message", zap.Any("message", req.msg))
 				ch.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				err = ch.Conn.WriteJSON(req.msg)
 			}
@@ -91,12 +93,14 @@ func WriteJSONSafe(holder *ConnectionHolder, timeout time.Duration, message inte
 
 // EnqueueMessage 将消息尽力推入连接发送队列，不等待写入执行，仅等待入队成功或超时。
 func EnqueueMessage(userID int64, timeout time.Duration, message interface{}) error {
+	zap.L().Debug("EnqueueMessage", zap.Int64("userID", userID), zap.Any("message", message))
 	val, ok := connStore.Load(userID)
 	if !ok {
 		return ErrNoConn
 	}
 	holder := val.(*ConnectionHolder)
 	req := sendRequest{msg: message, resp: nil}
+	zap.L().Debug("EnqueueMessage prepared request", zap.Int64("userID", userID), zap.Any("request", req))
 	select {
 	case holder.sendCh <- req:
 		return nil

@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"Gateway/center_client/ws"
 	"Gateway/pkg/push"
 	"Gateway/pkg/push/types"
 	"net"
@@ -42,6 +43,10 @@ func WebSocketHandler(c *gin.Context) {
 	}
 	userIDInt64 := userID.(int64)
 	push.RegisterConnection(userIDInt64, conn)
+	// report to center that user connected
+	if err := ws.ReportUserConnect(userIDInt64); err != nil {
+		zap.L().Warn("ReportUserConnect failed", zap.Int64("userID", userIDInt64), zap.Error(err))
+	}
 
 	push.PushViaWS(userIDInt64, 10*time.Second, types.ClientMessage{
 		ID:       -1,
@@ -74,7 +79,6 @@ func WebSocketHandler(c *gin.Context) {
 			holder, ok := push.GetConnectionHolder(userIDInt64)
 			if !ok {
 				zap.L().Warn("Connection holder not found during heartbeat", zap.Int64("userID", userIDInt64))
-
 				continue
 			}
 
@@ -133,5 +137,9 @@ func WebSocketHandler(c *gin.Context) {
 		}
 	}
 	push.RemoveConnection(userIDInt64)
+	// report to center that user disconnected
+	if err := ws.ReportUserDisconnect(userIDInt64); err != nil {
+		zap.L().Warn("ReportUserDisconnect failed", zap.Int64("userID", userIDInt64), zap.Error(err))
+	}
 	zap.L().Info("WebSocket connection closed", zap.Int64("userID", userIDInt64))
 }

@@ -12,7 +12,7 @@ import (
 func InitRouter() *gin.Engine {
 	r := gin.New()
 	r.Use(logger.GinLogger(), logger.GinRecovery(true))
-	User := r.Group("/user", middleware.JWTAuthMiddleware())
+	User := r.Group("/api", middleware.JWTAuthMiddleware())
 	{
 		User.GET("/ws", ws.WebSocketHandler)
 	}

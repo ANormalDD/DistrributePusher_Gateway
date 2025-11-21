@@ -10,13 +10,13 @@ import (
 var Conf = new(AppConfig)
 
 type AppConfig struct {
+	Address   string `mapstructure:"address"`
 	Port      int    `mapstructure:"port"`
 	Name      string `mapstructure:"name"`
 	Mode      string `mapstructure:"mode"`
 	Version   string `mapstructure:"version"`
 	StartTime string `mapstructure:"start_time"`
 	MachineID int64  `mapstructure:"machine_id"`
-	
 
 	*LogConfig        `mapstructure:"log"`
 	*MySQLConfig      `mapstructure:"mysql"`
@@ -68,15 +68,15 @@ type CenterConfig struct {
 }
 
 func Init() (err error) {
-	viper.SetConfigName("config") // 指定配置文件名称（不带后缀）
-	viper.SetConfigType("yaml")   // 指定配置文件类型
-	viper.AddConfigPath(".")      // 指定查找配置文件的路径（这里使用相对路径）
-	err = viper.ReadInConfig()    // 读取配置信息
-	if err != nil {               // 读取配置信息失败
+	viper.SetConfigName("config") 
+	viper.SetConfigType("yaml")   
+	viper.AddConfigPath(".")     
+	err = viper.ReadInConfig()    
+	if err != nil {               
 		fmt.Printf("viper.ReadInConfig() failed, err:%v\n", err)
 		return
 	}
-	if err = viper.Unmarshal(Conf); err != nil { // 将读取到的配置信息反序列化到Conf变量中
+	if err = viper.Unmarshal(Conf); err != nil { 
 		fmt.Printf("viper.Unmarshal failed, err:%v\n", err)
 	}
 	// 监听配置文件变化

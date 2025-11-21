@@ -1,0 +1,3 @@
+{
+    "data":"{\"ID\":22,\"Type\":\"chat\",\"RoomID\":1,\"SenderID\":2,\"TargetIDs\":[1],\"Payload\":{\"text\":\"1\"}}\n"
+}

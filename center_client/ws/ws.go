@@ -3,12 +3,16 @@ package ws
 // 用于处理与中心服务器的 WebSocket 连接：连接管理、心跳与推送消息转发
 
 import (
+	"Gateway/pkg/config"
+	"Gateway/pkg/push"
+	"Gateway/pkg/push/types"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"sync"
 	"time"
-
-	"Gateway/pkg/config"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -19,6 +23,9 @@ var (
 	cancel  context.CancelFunc
 	writeMu sync.Mutex
 )
+
+// package-level context so background reporters can observe stop signal
+var ctxGlobal context.Context
 
 // readyMu protects readyCh and connected
 var (
@@ -40,8 +47,11 @@ func Start() {
 		return
 	}
 
+	// create and store package-level context so other background
+	// goroutines (e.g. load reporter) can observe cancellation.
 	ctx, c := context.WithCancel(context.Background())
 	cancel = c
+	ctxGlobal = ctx
 
 	go func() {
 		// 重连循环
@@ -54,7 +64,7 @@ func Start() {
 			default:
 			}
 
-			err := connectAndServe(ctx, config.Conf.CenterConfig.Address)
+			err := connectAndServe(ctxGlobal, config.Conf.CenterConfig.Address)
 			if err != nil {
 				zap.L().Error("center ws connection loop error", zap.Error(err))
 			}
@@ -79,6 +89,7 @@ func Stop() error {
 }
 
 func connectAndServe(ctx context.Context, addr string) error {
+	// try ping center server first
 	zap.L().Info("dialing center websocket", zap.String("addr", addr))
 	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	c, _, err := d.Dial(addr, nil)
@@ -141,8 +152,32 @@ func connectAndServe(ctx context.Context, addr string) error {
 
 	for {
 		mt, data, err := conn.ReadMessage()
+		zap.L().Debug("center ws read message", zap.Int("msg_type", mt), zap.Int("data_len", len(data)))
 		if err != nil {
-			zap.L().Warn("center ws read error", zap.Error(err))
+			// If peer closed the connection normally (CloseNormalClosure / CloseGoingAway)
+			// treat as closed and return so the reconnect loop can run.
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				zap.L().Info("center ws closed by peer", zap.Error(err))
+				return err
+			}
+
+			// If it's a temporary network error (timeout/temporary), don't tear down the
+			// whole connection immediately. Log and continue to allow transient blips.
+			if ne, ok := err.(net.Error); ok && (ne.Timeout() || ne.Temporary()) {
+				zap.L().Warn("temporary read error from center ws, will retry read", zap.Error(err))
+				// small backoff to avoid busy-looping on persistent transient errors
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			// EOF means remote closed; return to trigger reconnect
+			if errors.Is(err, io.EOF) {
+				zap.L().Info("center ws read EOF, connection closed", zap.Error(err))
+				return err
+			}
+
+			// Other errors: treat as fatal for this connection and let reconnect loop handle it.
+			zap.L().Warn("center ws read error, closing connection", zap.Error(err))
 			return err
 		}
 
@@ -155,7 +190,19 @@ func connectAndServe(ctx context.Context, addr string) error {
 }
 
 func handleIncoming(data []byte) {
-	zap.L().Debug("received message from center (ignored)", zap.ByteString("data", data))
+	zap.L().Debug("received message from center", zap.ByteString("data", data))
+
+	var pushmsg types.PushMessage
+	if err := json.Unmarshal(data, &pushmsg); err != nil {
+		zap.L().Warn("handleIncoming: invalid json from center", zap.Error(err))
+		return
+	}
+	zap.L().Debug("handleIncoming: parsed push message", zap.Any("message", pushmsg))
+	err := push.Dispatch(pushmsg)
+	if err != nil {
+		zap.L().Error("handleIncoming: push.Dispatch error", zap.Error(err), zap.Any("message", pushmsg))
+	}
+
 }
 
 func ReportUserConnect(userID int64) error {
@@ -217,4 +264,49 @@ func WaitReady(timeout time.Duration) error {
 	case <-time.After(timeout):
 		return errors.New("center ws not ready (timeout)")
 	}
+}
+
+// ReportLoad sends a load update message to the center server.
+// The message payload is: {"type":"load_update","load": <ratio 0..1>}
+func ReportLoad(nowConn int, maxConn int) error {
+	if maxConn <= 0 {
+		return errors.New("invalid maxConn")
+	}
+	load := float64(nowConn) / float64(maxConn)
+	msg := map[string]interface{}{
+		"type": "load_update",
+		"load": load,
+		"ts":   time.Now().Unix(),
+	}
+	return sendJSONSafe(msg)
+}
+
+// StartLoadReporter starts a background goroutine that periodically reports
+// the current connection load (now_conn / max_conn) to the center server.
+// It will stop when the websocket Start/Stop context is canceled.
+func StartLoadReporter(interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// get current connection count from push manager
+				now := push.GetConnectionCount()
+				max := push.MaxConnections
+				if max <= 0 {
+					continue
+				}
+				if err := ReportLoad(now, max); err != nil {
+					zap.L().Warn("load reporter: failed to send load", zap.Error(err))
+				}
+			case <-ctxGlobal.Done():
+				zap.L().Info("load reporter exiting due to context done")
+				return
+			}
+		}
+	}()
 }

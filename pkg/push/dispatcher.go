@@ -1,7 +1,7 @@
 package push
 
 import (
-	"Gateway/center_client"
+	"Gateway/pkg/centerclient"
 	"Gateway/pkg/config"
 	"Gateway/pkg/db/redis"
 	"Gateway/pkg/push/types"
@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 var dispatcherCtx context.Context
 var dispatcherCancel context.CancelFunc
 var MaxConnections int = 100000 // default max connections
@@ -30,13 +29,14 @@ func Dispatch(msg types.PushMessage) error {
 		SenderID: msg.SenderID,
 		Payload:  msg.Payload,
 	}
-
+	zap.L().Debug("Dispatching push message", zap.Any("message", clientMsg))
 	marshaledMsg, err := json.Marshal(clientMsg)
 	if err != nil {
 		zap.L().Error("Failed to marshal client message", zap.Error(err), zap.Any("message", clientMsg))
 		return err
 	}
 	for _, uid := range msg.TargetIDs {
+		zap.L().Debug("Dispatching to user", zap.Int64("userID", uid))
 		// try to enqueue directly to the user's send channel; small timeout to avoid blocking
 		if err := EnqueueMessage(uid, 100*time.Millisecond, clientMsg); err != nil {
 			if err == ErrNoConn {
@@ -49,7 +49,7 @@ func Dispatch(msg types.PushMessage) error {
 					SenderID: msg.SenderID,
 					Payload:  msg.Payload,
 				}
-				err2 := center_client.SendPushBackRequest(config.Conf.CenterConfig, forwardReq)
+				err2 := centerclient.SendPushBackRequest(config.Conf.CenterConfig, forwardReq, uid)
 				if err2 != nil {
 					zap.L().Error("SendPushBackRequest failed", zap.Int64("userID", uid), zap.Error(err2))
 				}
