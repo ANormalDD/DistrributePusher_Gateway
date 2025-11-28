@@ -3,13 +3,11 @@ package push
 import (
 	"Gateway/pkg/centerclient"
 	"Gateway/pkg/config"
-	"Gateway/pkg/db/redis"
 	"Gateway/pkg/push/types"
 	"context"
 	"encoding/json"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -56,15 +54,7 @@ func Dispatch(msg types.PushMessage) error {
 				continue
 			}
 			// fallback: 推送到redis等待队列,并记录
-			err2 := redis.SAddWithRetry(2, "wait:push:set", strconv.FormatInt(uid, 10))
-			if err2 != nil {
-				zap.L().Error("EnqueueMessage failed and SAdd wait push userID failed. Message missed", zap.Int64("userID", uid), zap.Error(err2), zap.Error(err))
-				continue
-			}
-			err2 = redis.RPushWithRetry(2, "wait:push:"+strconv.FormatInt(uid, 10), marshaledMsg)
-			if err2 != nil {
-				zap.L().Error("EnqueueMessage failed and RPush wait push message failed. Message missed", zap.Int64("userID", uid), zap.Error(err2), zap.Error(err))
-			}
+			InsertWaitQueue(uid,string(marshaledMsg))
 		}
 	}
 	return nil
