@@ -15,6 +15,7 @@ import (
 	"Gateway/pkg/db/mysql"
 	"Gateway/pkg/db/redis"
 	"Gateway/pkg/logger"
+	"Gateway/pkg/monitor"
 	"Gateway/pkg/push"
 	"Gateway/route"
 
@@ -37,6 +38,9 @@ func main() {
 	}
 
 	zap.L().Info("config and logger initialized")
+
+	// init monitor package (signal handling and package context)
+	monitor.InitMonitor()
 
 	// init mysql (optional)
 	if config.Conf.MySQLConfig != nil {

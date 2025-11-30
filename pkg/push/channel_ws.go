@@ -1,16 +1,24 @@
 package push
 
 import (
+	"Gateway/pkg/monitor"
 	"Gateway/pkg/push/types"
 	"time"
 )
 
-func PushViaWS(userID int64, writeWait time.Duration, message types.ClientMessage) error {
+func PushViaWS(userID int64, writeWait time.Duration, message types.ClientMessage) (err error) {
+	t := monitor.NewTask()
+	defer func() {
+		if pushWSMonitor != nil {
+			pushWSMonitor.CompleteTask(t, err == nil)
+		}
+	}()
+
 	holder, ok := GetConnectionHolder(userID)
 	if !ok {
 		return ErrNoConn
 	}
-	err := WriteJSONSafe(holder, writeWait, message)
+	err = WriteJSONSafe(holder, writeWait, message)
 	if err != nil && err != ErrNoConn {
 		RemoveConnection(userID)
 	}

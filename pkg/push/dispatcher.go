@@ -3,6 +3,7 @@ package push
 import (
 	"Gateway/pkg/centerclient"
 	"Gateway/pkg/config"
+	"Gateway/pkg/monitor"
 	"Gateway/pkg/push/types"
 	"context"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 var dispatcherCtx context.Context
 var dispatcherCancel context.CancelFunc
 var MaxConnections int = 100000 // default max connections
+var pushWSMonitor *monitor.Monitor
 
 func Dispatch(msg types.PushMessage) error {
 
@@ -54,7 +56,7 @@ func Dispatch(msg types.PushMessage) error {
 				continue
 			}
 			// fallback: 推送到redis等待队列,并记录
-			InsertWaitQueue(uid,string(marshaledMsg))
+			InsertWaitQueue(uid, string(marshaledMsg))
 		}
 	}
 	return nil
@@ -75,6 +77,10 @@ func waitForShutdown() {
 func InitDispatcher(Conf *config.DispatcherConfig) {
 	dispatcherCtx, dispatcherCancel = context.WithCancel(context.Background())
 	MaxConnections = Conf.MaxConnections
+	// create push monitor for websocket push path
+	pushWSMonitor = monitor.NewMonitor("push_ws", 1000, 10000, 60000)
+	pushWSMonitor.Run()
+
 	go waitForShutdown()
 	go ListeningWaitQueue()
 }

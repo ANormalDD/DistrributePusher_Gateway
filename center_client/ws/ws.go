@@ -4,6 +4,7 @@ package ws
 
 import (
 	"Gateway/pkg/config"
+	"Gateway/pkg/monitor"
 	"Gateway/pkg/push"
 	"Gateway/pkg/push/types"
 	"context"
@@ -40,6 +41,8 @@ func init() {
 	connected = false
 }
 
+var centerMonitor *monitor.Monitor
+
 // Start 连接到中心服务器并启动读取循环。会在连接断开后尝试重连。
 func Start() {
 	if config.Conf == nil || config.Conf.CenterConfig == nil || config.Conf.CenterConfig.Address == "" {
@@ -52,6 +55,10 @@ func Start() {
 	ctx, c := context.WithCancel(context.Background())
 	cancel = c
 	ctxGlobal = ctx
+
+	// create monitor for incoming center messages
+	centerMonitor = monitor.NewMonitor("center_incoming", 1000, 10000, 60000)
+	centerMonitor.Run()
 
 	go func() {
 		// 重连循环
@@ -192,15 +199,22 @@ func connectAndServe(ctx context.Context, addr string) error {
 func handleIncoming(data []byte) {
 	zap.L().Debug("received message from center", zap.ByteString("data", data))
 
+	t := monitor.NewTask()
 	var pushmsg types.PushMessage
 	if err := json.Unmarshal(data, &pushmsg); err != nil {
 		zap.L().Warn("handleIncoming: invalid json from center", zap.Error(err))
+		if centerMonitor != nil {
+			centerMonitor.CompleteTask(t, false)
+		}
 		return
 	}
 	zap.L().Debug("handleIncoming: parsed push message", zap.Any("message", pushmsg))
 	err := push.Dispatch(pushmsg)
 	if err != nil {
 		zap.L().Error("handleIncoming: push.Dispatch error", zap.Error(err), zap.Any("message", pushmsg))
+	}
+	if centerMonitor != nil {
+		centerMonitor.CompleteTask(t, err == nil)
 	}
 
 }
