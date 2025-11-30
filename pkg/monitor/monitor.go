@@ -4,9 +4,10 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
-	"sync"
+
 	"go.uber.org/zap"
 )
 
@@ -30,12 +31,12 @@ type Monitor struct {
 	windowdur      int64
 	totalTimeCount int64
 	successCount   int64
-	rwmu 		 sync.RWMutex // to protect concurrent access
+	rwmu           sync.RWMutex // to protect concurrent access
 	insertChan     chan *task
 }
 
 func NewMonitor(name string, maxLen int, maxTaskTime int64, windowdur int64) *Monitor {
-	return &Monitor{
+	m := &Monitor{
 		name:           name,
 		tasks:          make([]task, maxLen),
 		maxLen:         maxLen,
@@ -47,6 +48,9 @@ func NewMonitor(name string, maxLen int, maxTaskTime int64, windowdur int64) *Mo
 		successCount:   0,
 		insertChan:     make(chan *task, maxLen),
 	}
+	// auto-register new monitor for exporters
+	registerMonitor(m)
+	return m
 }
 
 func NewTask() *task {
