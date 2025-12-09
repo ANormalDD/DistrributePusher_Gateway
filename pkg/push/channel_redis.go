@@ -3,13 +3,16 @@ package push
 import (
 	"Gateway/pkg/db/redis"
 	"Gateway/pkg/push/types"
+	"context"
 	"encoding/json"
 	"strconv"
-	"time"
 	"sync"
-	Redis "github.com/go-redis/redis"
+	"time"
+
+	Redis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
+
 var waitSet sync.Map
 
 // use when redis is down <int,chan<string>>
@@ -43,7 +46,7 @@ func InsertWaitMsg(userID int64, msg string) {
 	ch <- msg
 }
 
-func InsertWaitQueue(userID int64, marshaledMsg string)  {
+func InsertWaitQueue(userID int64, marshaledMsg string) {
 	InsertWaitSet(userID)
 	err := redis.RPushWithRetry(2, "wait:push:"+strconv.FormatInt(userID, 10), marshaledMsg)
 	if err != nil {
@@ -115,7 +118,8 @@ func ListeningWaitQueue() {
 				return false // stop iteration when queue is busy
 			}
 			// if wait queue is empty remove from local waitSet
-			lenOfWaitQueue, err := redis.Rdb.LLen("wait:push:" + uidStr).Result()
+			ctx := context.Background()
+			lenOfWaitQueue, err := redis.Rdb.LLen(ctx, "wait:push:" + uidStr).Result()
 			if err != nil {
 				if err != Redis.Nil {
 					zap.L().Error("Failed to get length of wait push queue", zap.Int64("userID", uid), zap.Error(err))
@@ -136,4 +140,3 @@ func ListeningWaitQueue() {
 
 	}
 }
-

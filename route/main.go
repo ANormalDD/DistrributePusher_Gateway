@@ -22,6 +22,7 @@ func InitRouter() *gin.Engine {
 	Center := r.Group("/center")
 	{
 		Center.POST("/forward", center.ForwardHandler)
+		
 	}
 	return r
 }

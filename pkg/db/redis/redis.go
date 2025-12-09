@@ -3,10 +3,11 @@ package redis
 import (
 	"Gateway/pkg/config"
 	"Gateway/pkg/monitor"
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 var Rdb *redis.Client
@@ -20,7 +21,10 @@ func Init(cfg *config.RedisConfig) (err error) {
 		PoolSize: cfg.PoolSize,
 	})
 	Monitor = monitor.NewMonitor("redis", 1000, 10000, 60000)
-	_, err = Rdb.Ping().Result()
+	// register hook so all redis commands are monitored centrally
+	Rdb.AddHook(&redisMonitorHook{mon: Monitor})
+	ctx := context.Background()
+	_, err = Rdb.Ping(ctx).Result()
 	return
 }
 
@@ -28,17 +32,14 @@ func LPopWithRetry(retry int, key string) (string, error) {
 	var err error
 	var result string
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		result, err = Rdb.LPop(key).Result()
+		ctx := context.Background()
+		result, err = Rdb.LPop(ctx, key).Result()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return result, nil
 		}
 		if err == redis.Nil {
-			Monitor.CompleteTask(task, false)
 			return "", redis.Nil
 		}
-		Monitor.CompleteTask(task, false)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return result, err
@@ -46,13 +47,11 @@ func LPopWithRetry(retry int, key string) (string, error) {
 func RPushWithRetry(retry int, key string, value interface{}) error {
 	var err error
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		err = Rdb.RPush(key, value).Err()
+		ctx := context.Background()
+		err = Rdb.RPush(ctx, key, value).Err()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return nil
 		}
-		Monitor.CompleteTask(task, false)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return err
@@ -62,13 +61,11 @@ func RPushWithRetry(retry int, key string, value interface{}) error {
 func SAddWithRetry(retry int, key string, members ...interface{}) error {
 	var err error
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		err = Rdb.SAdd(key, members...).Err()
+		ctx := context.Background()
+		err = Rdb.SAdd(ctx, key, members...).Err()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return nil
 		}
-		Monitor.CompleteTask(task, false)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return err
@@ -79,13 +76,11 @@ func SMembersWithRetry(retry int, key string) ([]string, error) {
 	var err error
 	var result []string
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		result, err = Rdb.SMembers(key).Result()
+		ctx := context.Background()
+		result, err = Rdb.SMembers(ctx, key).Result()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return result, nil
 		}
-		Monitor.CompleteTask(task, false)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return result, err
@@ -94,13 +89,11 @@ func SScanWithRetry(retry int, key string, cursor uint64, match string, count in
 	var err error
 	var result []string
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		result, cursor, err = Rdb.SScan(key, cursor, match, count).Result()
+		ctx := context.Background()
+		result, cursor, err = Rdb.SScan(ctx, key, cursor, match, count).Result()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return result, cursor, nil
 		}
-		Monitor.CompleteTask(task, false)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return result, cursor, err
@@ -109,13 +102,11 @@ func SIsEmptyWithRetry(retry int, key string) (bool, error) {
 	var err error
 	var count int64
 	for i := 0; i < retry; i++ {
-		task := monitor.NewTask()
-		count, err = Rdb.SCard(key).Result()
+		ctx := context.Background()
+		count, err = Rdb.SCard(ctx, key).Result()
 		if err == nil {
-			Monitor.CompleteTask(task, true)
 			return count == 0, nil
 		}
-		Monitor.CompleteTask(task, false) 
 		time.Sleep(100 * time.Millisecond)
 	}
 	return false, err
